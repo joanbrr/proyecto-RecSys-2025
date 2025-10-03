@@ -7,7 +7,8 @@ from typing import Dict, List, Set, Tuple, Optional, Union
 # Data Preparation Functions
 # ============================================================================
 
-def prepare_ground_truth(testset: List[Tuple], rating_threshold: float = 3.0) -> Dict[str, Set[str]]:
+def prepare_ground_truth(testset: List[Tuple[str, str, float]], 
+                        rating_threshold: float = 2.0) -> Dict[str, Set[str]]:
     """
     Creates a dictionary of relevant items for each user from the test set.
 
@@ -48,21 +49,38 @@ def prepare_recommendations(raw_recommendations: Dict[str, List]) -> Dict[str, L
     return standardized
 
 
-def prepare_item_popularity(trainset) -> Dict[str, int]:
+def calculate_item_popularity(trainset: List[Tuple[str, str, float]]) -> Dict[str, int]:
     """
     Calculates item popularity from training set.
 
     Args:
-        trainset: Training set from surprise Dataset
+        trainset: List of tuples (user_id, item_id, rating)
 
     Returns:
         Dictionary {item_id: interaction_count}
     """
     item_counts = defaultdict(int)
-    for _, iiid, _ in trainset.all_ratings():
-        iid = trainset.to_raw_iid(iiid)
+    for _, iid, _ in trainset:
         item_counts[iid] += 1
     return dict(item_counts)
+
+
+def get_all_items(trainset: List[Tuple[str, str, float]], 
+                  testset: Optional[List[Tuple[str, str, float]]] = None) -> Set[str]:
+    """
+    Extracts all unique items from training and optionally test set.
+
+    Args:
+        trainset: List of tuples (user_id, item_id, rating)
+        testset: Optional list of tuples (user_id, item_id, rating)
+
+    Returns:
+        Set of all unique item_ids
+    """
+    all_items = {iid for _, iid, _ in trainset}
+    if testset:
+        all_items.update(iid for _, iid, _ in testset)
+    return all_items
 
 
 # ============================================================================
@@ -220,6 +238,7 @@ def novelty_at_k(recommendations: Dict[str, List[str]],
     """
     Calculates average novelty based on item popularity.
     Novelty = -log2(popularity / total_interactions)
+    Higher values indicate more novel (less popular) recommendations.
     """
     total_interactions = sum(item_popularity.values())
     novelty_scores = []
@@ -245,6 +264,7 @@ def catalog_coverage(recommendations: Dict[str, List[str]],
                      k: int = 10) -> float:
     """
     Calculates what proportion of the catalog is recommended to at least one user.
+    Returns a value between 0 and 1.
     """
     recommended_items = set()
     
@@ -285,6 +305,7 @@ def intra_list_similarity(recommendations: Dict[str, List[str]],
     
     return np.mean(ils_scores) if ils_scores else 0.0
 
+
 # ============================================================================
 # Main Evaluation Function
 # ============================================================================
@@ -304,12 +325,19 @@ def evaluate_recommendations(
         recommendations: Dict {user_id: [item_id, ...] or [(item_id, score), ...]}
         ground_truth: Dict {user_id: set of relevant item_ids}
         k_values: List of k values to evaluate at
-        item_popularity: Dict {item_id: interaction_count} for novelty
-        item_features: Dict {item_id: set of features} for diversity
-        all_items: Set of all item_ids for coverage
+        item_popularity: Dict {item_id: interaction_count} for novelty metric
+        item_features: Dict {item_id: set of features} for diversity metric
+        all_items: Set of all item_ids for coverage metric
     
     Returns:
         Dictionary of metrics with structure {metric_name: {k: score}}
+        
+    Example:
+        >>> recs = {'user1': ['item1', 'item2', 'item3']}
+        >>> truth = {'user1': {'item1', 'item5'}}
+        >>> results = evaluate_recommendations(recs, truth, k_values=[3])
+        >>> print(results['precision'][3])
+        0.333...
     """
     # Standardize recommendations format
     recs = prepare_recommendations(recommendations)
@@ -323,7 +351,6 @@ def evaluate_recommendations(
         results['f1'][k] = f1_at_k(recs, ground_truth, k)
         results['map'][k] = map_at_k(recs, ground_truth, k)
         results['ndcg'][k] = ndcg_at_k(recs, ground_truth, k)
-        results['hit_rate'][k] = hit_rate_at_k(recs, ground_truth, k)
         results['mrr'][k] = mrr_at_k(recs, ground_truth, k)
         
         # Diversity & coverage metrics (if data available)
@@ -341,7 +368,6 @@ def evaluate_recommendations(
 
 def print_evaluation_results(results: Dict[str, Dict[int, float]]):
     """Pretty print evaluation results."""
-
     print("\n" + "="*60)
     print("RECOMMENDATION EVALUATION RESULTS")
     print("="*60)
@@ -351,3 +377,53 @@ def print_evaluation_results(results: Dict[str, Dict[int, float]]):
         for k, score in sorted(k_scores.items()):
             print(f"  @{k:2d}: {score:.4f}")
     print("\n" + "="*60)
+
+
+"""
+# ============================================================================
+# Example Usage
+# ============================================================================
+
+if __name__ == "__main__":
+    # Example: Standard Python data structures only
+    
+    # Training data (for item popularity and all items)
+    trainset = [
+        ('user1', 'item1', 5.0),
+        ('user1', 'item2', 4.0),
+        ('user2', 'item3', 3.5),
+        ('user2', 'item1', 4.5),
+        ('user3', 'item4', 5.0),
+    ]
+    
+    # Test data (for ground truth)
+    testset = [
+        ('user1', 'item1', 5.0),
+        ('user1', 'item3', 4.0),
+        ('user2', 'item5', 3.5),
+        ('user2', 'item7', 2.0),  # Below threshold
+    ]
+    
+    # Recommendations from your model
+    recommendations = {
+        'user1': ['item1', 'item2', 'item3', 'item4', 'item5'],
+        'user2': [('item3', 0.9), ('item5', 0.8), ('item6', 0.7)],  # Handles tuples too
+    }
+    
+    # Prepare data
+    ground_truth = prepare_ground_truth(testset, rating_threshold=3.0)
+    item_popularity = calculate_item_popularity(trainset)
+    all_items = get_all_items(trainset, testset)
+    
+    # Run evaluation
+    results = evaluate_recommendations(
+        recommendations=recommendations,
+        ground_truth=ground_truth,
+        k_values=[3, 5],
+        item_popularity=item_popularity,
+        all_items=all_items
+    )
+    
+    print_evaluation_results(results)
+
+"""
