@@ -49,22 +49,6 @@ def prepare_recommendations(raw_recommendations: Dict[str, List]) -> Dict[str, L
     return standardized
 
 
-def calculate_item_popularity(trainset: List[Tuple[str, str, float]]) -> Dict[str, int]:
-    """
-    Calculates item popularity from training set.
-
-    Args:
-        trainset: List of tuples (user_id, item_id, rating)
-
-    Returns:
-        Dictionary {item_id: interaction_count}
-    """
-    item_counts = defaultdict(int)
-    for _, iid, _ in trainset:
-        item_counts[iid] += 1
-    return dict(item_counts)
-
-
 def get_all_items(trainset: List[Tuple[str, str, float]], 
                   testset: Optional[List[Tuple[str, str, float]]] = None) -> Set[str]:
     """
@@ -82,6 +66,20 @@ def get_all_items(trainset: List[Tuple[str, str, float]],
         all_items.update(iid for _, iid, _ in testset)
     return all_items
 
+# ============================================================================
+# Rating prediction Metrics (require ratings predictions and ground truth)
+# ============================================================================
+
+def calculate_rmse(predictions: List[Tuple[str, str, float, float]]) -> float:
+    """Calculate Root Mean Squared Error."""
+    errors = [(true - pred)**2 for _, _, true, pred in predictions]
+    return np.sqrt(np.mean(errors))
+
+
+def calculate_mae(predictions: List[Tuple[str, str, float, float]]) -> float:
+    """Calculate Mean Absolute Error."""
+    errors = [abs(true - pred) for _, _, true, pred in predictions]
+    return np.mean(errors)
 
 # ============================================================================
 # Ranking Metrics (require only recommendations and ground truth)
@@ -331,13 +329,7 @@ def evaluate_recommendations(
     
     Returns:
         Dictionary of metrics with structure {metric_name: {k: score}}
-        
-    Example:
-        >>> recs = {'user1': ['item1', 'item2', 'item3']}
-        >>> truth = {'user1': {'item1', 'item5'}}
-        >>> results = evaluate_recommendations(recs, truth, k_values=[3])
-        >>> print(results['precision'][3])
-        0.333...
+
     """
     # Standardize recommendations format
     recs = prepare_recommendations(recommendations)
@@ -377,53 +369,3 @@ def print_evaluation_results(results: Dict[str, Dict[int, float]]):
         for k, score in sorted(k_scores.items()):
             print(f"  @{k:2d}: {score:.4f}")
     print("\n" + "="*60)
-
-
-"""
-# ============================================================================
-# Example Usage
-# ============================================================================
-
-if __name__ == "__main__":
-    # Example: Standard Python data structures only
-    
-    # Training data (for item popularity and all items)
-    trainset = [
-        ('user1', 'item1', 5.0),
-        ('user1', 'item2', 4.0),
-        ('user2', 'item3', 3.5),
-        ('user2', 'item1', 4.5),
-        ('user3', 'item4', 5.0),
-    ]
-    
-    # Test data (for ground truth)
-    testset = [
-        ('user1', 'item1', 5.0),
-        ('user1', 'item3', 4.0),
-        ('user2', 'item5', 3.5),
-        ('user2', 'item7', 2.0),  # Below threshold
-    ]
-    
-    # Recommendations from your model
-    recommendations = {
-        'user1': ['item1', 'item2', 'item3', 'item4', 'item5'],
-        'user2': [('item3', 0.9), ('item5', 0.8), ('item6', 0.7)],  # Handles tuples too
-    }
-    
-    # Prepare data
-    ground_truth = prepare_ground_truth(testset, rating_threshold=3.0)
-    item_popularity = calculate_item_popularity(trainset)
-    all_items = get_all_items(trainset, testset)
-    
-    # Run evaluation
-    results = evaluate_recommendations(
-        recommendations=recommendations,
-        ground_truth=ground_truth,
-        k_values=[3, 5],
-        item_popularity=item_popularity,
-        all_items=all_items
-    )
-    
-    print_evaluation_results(results)
-
-"""

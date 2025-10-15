@@ -178,6 +178,40 @@ class UserKNN:
             pred = self.predict(uid, iid)
             predictions.append((uid, iid, true_rating, pred))
         return predictions
+
+    def get_all_predictions(self, user_ids: List[str] = None) -> Dict[str, List[Tuple[str, float]]]:
+        """
+        FUNCIÓN AUXILIAR PARA RECOMENDACIÓN (Top-N).
+        Genera predicciones para todos los ítems que un usuario NO ha calificado.
+        Esta es la función que reconstruiste correctamente.
+        """
+        if user_ids is None:
+            user_ids = list(self.user_to_idx.keys())
+
+        all_predictions = {}
+        for uid in user_ids:
+            # Chequeo de seguridad: si el usuario no está en el set de entrenamiento, no podemos recomendarle.
+            if uid not in self.user_to_idx.keys():
+                continue
+                
+            user_idx = self.user_to_idx[uid]
+            # Obtiene la fila de ratings del usuario de la matriz
+            user_ratings = self.user_item_matrix[user_idx]
+            
+            user_preds = []
+            # Itera sobre todos los ítems del sistema
+            for item_idx, rating in enumerate(user_ratings):
+                # La condición clave: solo predecir si el rating es NaN (no visto)
+                if np.isnan(rating):
+                    item_id = self.idx_to_item[item_idx]
+                    # Llama a la predicción individual para este ítem no visto
+                    pred = self.predict(uid, item_id)
+                    user_preds.append((item_id, pred))
+            
+
+            all_predictions[uid] = user_preds
+            
+        return all_predictions
     
     def get_top_n(self, user_ids: List[str] = None, n: int = 10) -> Dict[str, List[Tuple[str, float]]]:
         """
@@ -200,8 +234,7 @@ class UserKNN:
             top_n[uid] = predictions[:n]
         
         return top_n
-
-
+    
 def calculate_rmse(predictions: List[Tuple[str, str, float, float]]) -> float:
     """Calculate Root Mean Squared Error."""
     errors = [(true - pred)**2 for _, _, true, pred in predictions]
