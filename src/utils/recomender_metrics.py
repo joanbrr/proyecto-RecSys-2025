@@ -2,6 +2,7 @@ import numpy as np
 from collections import defaultdict
 from itertools import combinations
 from typing import Dict, List, Set, Tuple, Optional, Union
+import pandas as pd
 
 # ============================================================================
 # Data Preparation Functions
@@ -302,6 +303,29 @@ def intra_list_similarity(recommendations: Dict[str, List[str]],
             ils_scores.append(np.mean(similarities))
     
     return np.mean(ils_scores) if ils_scores else 0.0
+
+# ============================================================================
+# Custom metrics
+# ============================================================================
+
+def mood_alignment(
+        recommendations: Dict[str, List[Union[str, Tuple[str, float]]]]
+) -> float:
+    """
+    Given the recommendations lists, gives how much the new movies align with the
+    mood that the users like.
+    
+    Args:
+        recommendations: Dict {user_id: [item_id, ...] or [(item_id, score), ...]}
+    """
+
+    movies_info = pd.read_csv("../../data/processed/ml-100k-augmented.csv")
+    # Columns = movieId,title,release_date,unknown,Action,Adventure,Animation,Children's,Comedy,Crime,Documentary,Drama,Fantasy,Film-Noir,Horror,Musical,Mystery,Romance,Sci-Fi,Thriller,War,Western,imdbId,tmdbId,runtime,tmdb_rating,vote_count,popularity,budget,revenue,tagline,overview,keywords,mood,original_language
+
+    # Calculamos el mood alignement con distáncia binária de los posibles moods
+    # Posibles moods = ligero, romántico, intenso, emocionante, emocional, reflexivo, familiar, relajante, oscuro, inspirador, suspenso
+
+    
 
 
 # ============================================================================

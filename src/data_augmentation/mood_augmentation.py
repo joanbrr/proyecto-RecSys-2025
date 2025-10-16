@@ -5,11 +5,9 @@ from tqdm import tqdm
 from dotenv import load_dotenv
 import os
 
-# Cargar la clave de la API
 load_dotenv()
 MY_API_KEY = os.getenv('TMDB_API')
 
-# Configurar los headers para autenticación con Bearer token
 headers = {
     "accept": "application/json",
     "Authorization": f"Bearer {MY_API_KEY}"
@@ -191,15 +189,13 @@ def augment_movielens_dataset(limit=None, save_every=50):
             temp_df.to_csv('./data/processed/ml-100k-augmented-temp.csv', index=False)
             print(f"\n✓ Progreso guardado: {len(augmented_movies)} películas procesadas")
 
-    # Crear DataFrame final
     result_df = pd.DataFrame(augmented_movies)
 
-    # Guardar resultado final
     output_file = './data/processed/ml-100k-augmented.csv'
     result_df.to_csv(output_file, index=False)
 
     print(f"\n{'='*60}")
-    print("✓ ENRIQUECIMIENTO COMPLETO")
+    print("ENRIQUECIMIENTO COMPLETO")
     print(f"{'='*60}")
     print(f"Guardado en: {output_file}")
     print(f"\nEstadísticas:")
@@ -235,30 +231,18 @@ def analyze_moods(df):
 
     return mood_counts
 
-# Ejecución principal
+
 if __name__ == "__main__":
     print("="*60)
     print("Enriquecimiento TMDB para MovieLens 100K")
     print("="*60)
 
-    # Preguntar al usuario si quiere limitar el número de películas (opcional)
-    respuesta = input("\n¿Quieres procesar solo una parte del dataset para pruebas? (s/n): ")
-    if respuesta.lower() == 's':
-        limite = input("¿Cuántas películas quieres procesar?: ")
-        try:
-            limite = int(limite)
-        except:
-            print("Valor no válido, se procesarán todas las películas.")
-            limite = None
-    else:
-        limite = None
 
-    df_resultado = augment_movielens_dataset(limit=limite)
+    df_resultado = augment_movielens_dataset()
 
     print("\nMuestra de resultados:")
     print(df_resultado[['title', 'runtime', 'tmdb_rating', 'mood']].to_string())
 
-    # Analizar moods
     analyze_moods(df_resultado)
 
-    print("\n✓ Proceso finalizado. Consulta 'ml-100k-augmented.csv' para ver los resultados.")
+    print("\nProceso finalizado. Consulta 'ml-100k-augmented.csv' para ver los resultados.")
