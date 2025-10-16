@@ -56,29 +56,29 @@ def infer_mood(genres_list, keywords_list):
 
     # Inferencia basada en géneros
     if any(g in genres_str for g in ['comedy', 'animation']):
-        moods.append('ligero')
+        moods.append('lighthearted')
     if 'romance' in genres_str:
         moods.append('romántico')
     if any(g in genres_str for g in ['horror', 'thriller']):
-        moods.append('intenso')
+        moods.append('intense')
     if any(g in genres_str for g in ['action', 'adventure']):
-        moods.append('emocionante')
+        moods.append('exciting')
     if 'drama' in genres_str and 'crime' not in genres_str:
-        moods.append('emocional')
+        moods.append('emotional')
     if any(g in genres_str for g in ['documentary', 'history']):
         moods.append('reflexivo')
     if 'family' in genres_str or 'children' in genres_str:
-        moods.append('familiar')
+        moods.append('family-friendly')
 
     # Refinamiento usando palabras clave
     if any(kw in keywords_str for kw in ['peaceful', 'calm', 'meditation', 'nature']):
-        moods.append('relajante')
+        moods.append('relaxing')
     if any(kw in keywords_str for kw in ['dark', 'disturbing', 'violent']):
-        moods.append('oscuro')
+        moods.append('dark')
     if any(kw in keywords_str for kw in ['inspiring', 'uplifting', 'heartwarming']):
-        moods.append('inspirador')
-    if any(kw in keywords_str for kw in ['suspense', 'mystery', 'twist']):
-        moods.append('suspenso')
+        moods.append('inspiring')
+    if any(kw in keywords_str for kw in ['suspense', 'suspenseful', 'mystery', 'twist']):
+        moods.append('suspenseful')
 
     return moods if moods else ['neutral']
 
