@@ -1,5 +1,5 @@
 import numpy as np
-from collections import defaultdict
+from collections import defaultdict, Counter
 from itertools import combinations
 from typing import Dict, List, Set, Tuple, Optional, Union
 import pandas as pd
@@ -308,24 +308,68 @@ def intra_list_similarity(recommendations: Dict[str, List[str]],
 # Custom metrics
 # ============================================================================
 
+
+def calculate_cosine_similarity(vec1: Dict[str, float], vec2: Dict[str, float]) -> float:
+    """Calcula la similitud de coseno entre dos vectores representados como diccionarios."""
+    intersection = set(vec1.keys()) & set(vec2.keys())
+    
+    numerator = sum([vec1[x] * vec2[x] for x in intersection])
+
+    sum1 = sum([vec1[x]**2 for x in vec1.keys()])
+    sum2 = sum([vec2[x]**2 for x in vec2.keys()])
+    denominator = np.sqrt(sum1) * np.sqrt(sum2)
+
+    if not denominator:
+        return 0.0
+    return float(numerator) / denominator
+
+
 def mood_alignment(
-        recommendations: Dict[str, List[Union[str, Tuple[str, float]]]]
+    recommendations: Dict[str, List[Union[str, Tuple[str, float]]]],
+    user_mood_profiles: Dict[str, Dict[str, float]],
+    movie_mood_map: Dict[str, set]
 ) -> float:
     """
-    Given the recommendations lists, gives how much the new movies align with the
-    mood that the users like.
-    
+    Calcula el alineamiento de mood promedio usando similitud de coseno.
+
     Args:
-        recommendations: Dict {user_id: [item_id, ...] or [(item_id, score), ...]}
+        recommendations: Dict {user_id: [movieId, ...]}.
+        user_mood_profiles: Perfil de mood pre-calculado para cada usuario.
+        movie_mood_map: Mapa pre-calculado de movieId a sus moods.
     """
+    alignment_scores = []
 
-    movies_info = pd.read_csv("../../data/processed/ml-100k-augmented.csv")
-    # Columns = movieId,title,release_date,unknown,Action,Adventure,Animation,Children's,Comedy,Crime,Documentary,Drama,Fantasy,Film-Noir,Horror,Musical,Mystery,Romance,Sci-Fi,Thriller,War,Western,imdbId,tmdbId,runtime,tmdb_rating,vote_count,popularity,budget,revenue,tagline,overview,keywords,mood,original_language
+    # Estandarizar el formato de las recomendaciones por si vienen con puntaje
+    recs_clean = {
+        str(uid): [item[0] if isinstance(item, tuple) else item for item in items]
+        for uid, items in recommendations.items()
+    }
 
-    # Calculamos el mood alignement con distáncia binária de los posibles moods
-    # Posibles moods = ligero, romántico, intenso, emocionante, emocional, reflexivo, familiar, relajante, oscuro, inspirador, suspenso
+    for user_id, rec_items in recs_clean.items():
+        if user_id not in user_mood_profiles or not rec_items:
+            continue
 
-    
+        # Perfil histórico del usuario
+        user_profile = user_mood_profiles[user_id]
+
+        # 1. Crear el perfil de mood para la lista de recomendaciones
+        rec_moods_list = [mood for item_id in rec_items for mood in movie_mood_map.get(str(item_id), set())]
+        
+        if not rec_moods_list:
+            continue
+        
+        rec_mood_counts = Counter(rec_moods_list)
+        total_rec_moods = sum(rec_mood_counts.values())
+        
+        # 2. Normalizar para crear el vector de perfil de la recomendación
+        rec_profile = {mood: count / total_rec_moods for mood, count in rec_mood_counts.items()}
+        
+        # 3. Calcular la similitud de coseno y guardarla
+        similarity = calculate_cosine_similarity(user_profile, rec_profile)
+        alignment_scores.append(similarity)
+
+    # El resultado final es el promedio de alineamiento entre todos los usuarios
+    return np.mean(alignment_scores) if alignment_scores else 0.0
 
 
 # ============================================================================
