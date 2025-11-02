@@ -56,10 +56,15 @@ class DeepFM:
             self.n_users = len(self.user_encoder.classes_)
             self.n_items = len(self.item_encoder.classes_)
         else:
+            # Handle unknown values by filtering or mapping to known values
+            user_mask = df['user_id'].isin(self.user_encoder.classes_)
+            item_mask = df['item_id'].isin(self.item_encoder.classes_)
+            df = df[user_mask & item_mask].copy()
+            
             df['user_id'] = self.user_encoder.transform(df['user_id'])
             df['item_id'] = self.item_encoder.transform(df['item_id'])
         
-        X = {name: df[name].values for name in self.feature_names if name in df.columns}
+        X = {name: df[name].values for name in self.feature_names}
         return X
     
     def _build_model(self):
@@ -85,15 +90,29 @@ class DeepFM:
     
     def fit(self, train_df: pd.DataFrame, val_df: Optional[pd.DataFrame] = None):
         """Train the DeepFM model."""
-        X_train = self._prepare_features(train_df, fit_encoders=True)
-        y_train = (train_df['rating'] >= 4).astype(int).values
+        train_df_copy = train_df.copy()
+        train_df_copy['user_id'] = self.user_encoder.fit_transform(train_df_copy['user_id'])
+        train_df_copy['item_id'] = self.item_encoder.fit_transform(train_df_copy['item_id'])
+        self.n_users = len(self.user_encoder.classes_)
+        self.n_items = len(self.item_encoder.classes_)
         
         self.model = self._build_model()
         
+        X_train = {name: train_df_copy[name].values for name in self.feature_names}
+        y_train = (train_df['rating'] >= 4).astype(int).values
+        
         validation_data = None
         if val_df is not None:
-            X_val = self._prepare_features(val_df, fit_encoders=False)
-            y_val = (val_df['rating'] >= 4).astype(int).values
+            val_df_copy = val_df.copy()
+            user_mask = val_df_copy['user_id'].isin(self.user_encoder.classes_)
+            item_mask = val_df_copy['item_id'].isin(self.item_encoder.classes_)
+            val_df_copy = val_df_copy[user_mask & item_mask].copy()
+            
+            val_df_copy['user_id'] = self.user_encoder.transform(val_df_copy['user_id'])
+            val_df_copy['item_id'] = self.item_encoder.transform(val_df_copy['item_id'])
+            
+            X_val = {name: val_df_copy[name].values for name in self.feature_names}
+            y_val = (val_df_copy['rating'] >= 4).astype(int).values
             validation_data = (X_val, y_val)
         
         history = self.model.fit(
@@ -112,14 +131,21 @@ class DeepFM:
     
     def get_top_n(self, test_df: pd.DataFrame, n: int = 10) -> Dict[str, List[Tuple[str, float]]]:
         """Get top-N recommendations for users in test set."""
-        X_test = self._prepare_features(test_df, fit_encoders=False)
+        test_df_filtered = test_df.copy()
+        user_mask = test_df_filtered['user_id'].isin(self.user_encoder.classes_)
+        item_mask = test_df_filtered['item_id'].isin(self.item_encoder.classes_)
+        test_df_filtered = test_df_filtered[user_mask & item_mask]
+        
+        test_df_filtered['user_id_enc'] = self.user_encoder.transform(test_df_filtered['user_id'])
+        test_df_filtered['item_id_enc'] = self.item_encoder.transform(test_df_filtered['item_id'])
+        
+        X_test = {'user_id': test_df_filtered['user_id_enc'].values, 'item_id': test_df_filtered['item_id_enc'].values}
         y_scores = self.model.predict(X_test, batch_size=self.batch_size).reshape(-1)
         
-        test_eval = test_df[['user_id', 'item_id']].copy()
-        test_eval['score'] = y_scores
+        test_df_filtered['score'] = y_scores
         
         recommendations = {}
-        for user_id, group in test_eval.groupby('user_id'):
+        for user_id, group in test_df_filtered.groupby('user_id'):
             top_items = group.nlargest(n, 'score')[['item_id', 'score']].values.tolist()
             recommendations[str(user_id)] = [(str(item), score) for item, score in top_items]
         
