@@ -87,141 +87,292 @@ def calculate_mae(predictions: List[Tuple[str, str, float, float]]) -> float:
 # ============================================================================
 
 def precision_at_k(recommendations: Dict[str, List[str]], 
-                   ground_truth: Dict[str, Set[str]], 
-                   k: int = 10) -> float:
-    """Computes Precision@k averaged over all users."""
+                   ground_truth: Union[Dict[str, Set[str]], Dict[str, Dict[str, float]]], 
+                   k: int = 10,
+                   relevance_threshold: float = 0) -> float:
+    """
+    Computes Precision@k averaged over all users.
+    
+    Args:
+        recommendations: {user_id: [item_id, ...]}
+        ground_truth: {user_id: set(item_id)} or {user_id: {item_id: rating}}
+        k: Number of top recommendations to consider
+        relevance_threshold: Minimum rating to consider item relevant (for graded format)
+    """
     precisions = []
     
     for uid, recs in recommendations.items():
-        if uid not in ground_truth or not ground_truth[uid]:
+        uid_str = str(uid)
+        
+        if uid_str not in ground_truth or not ground_truth[uid_str]:
             continue
         
-        top_k = set(recs[:k])
-        relevant = ground_truth[uid]
+        top_k = [str(item) for item in recs[:k]]
         
-        if len(top_k) == 0:
+        # Handle both formats
+        if isinstance(ground_truth[uid_str], dict):
+            # Graded relevance: filter by threshold
+            relevant = {str(item) for item, rating in ground_truth[uid_str].items() 
+                       if rating > relevance_threshold}
+        else:
+            # Binary relevance: convert to strings
+            relevant = {str(item) for item in ground_truth[uid_str]}
+        
+        if len(top_k) == 0 or len(relevant) == 0:
             continue
-            
-        precision = len(top_k & relevant) / len(top_k)
+        
+        hits = len(set(top_k) & relevant)
+        precision = hits / len(top_k)
         precisions.append(precision)
     
     return np.mean(precisions) if precisions else 0.0
 
 
 def recall_at_k(recommendations: Dict[str, List[str]], 
-                ground_truth: Dict[str, Set[str]], 
-                k: int = 10) -> float:
-    """Computes Recall@k averaged over all users."""
+                ground_truth: Union[Dict[str, Set[str]], Dict[str, Dict[str, float]]], 
+                k: int = 10,
+                relevance_threshold: float = 0) -> float:
+    """
+    Computes Recall@k averaged over all users.
+    
+    Args:
+        recommendations: {user_id: [item_id, ...]}
+        ground_truth: {user_id: set(item_id)} or {user_id: {item_id: rating}}
+        k: Number of top recommendations to consider
+        relevance_threshold: Minimum rating to consider item relevant (for graded format)
+    """
     recalls = []
     
     for uid, recs in recommendations.items():
-        if uid not in ground_truth or not ground_truth[uid]:
+        uid_str = str(uid)
+        
+        if uid_str not in ground_truth or not ground_truth[uid_str]:
             continue
         
-        top_k = set(recs[:k])
-        relevant = ground_truth[uid]
+        top_k = [str(item) for item in recs[:k]]
         
-        recall = len(top_k & relevant) / len(relevant)
+        # Handle both formats
+        if isinstance(ground_truth[uid_str], dict):
+            # Graded relevance: filter by threshold
+            relevant = {str(item) for item, rating in ground_truth[uid_str].items() 
+                       if rating > relevance_threshold}
+        else:
+            # Binary relevance: convert to strings
+            relevant = {str(item) for item in ground_truth[uid_str]}
+        
+        if len(relevant) == 0:
+            continue
+        
+        hits = len(set(top_k) & relevant)
+        recall = hits / len(relevant)
         recalls.append(recall)
     
     return np.mean(recalls) if recalls else 0.0
 
 
 def f1_at_k(recommendations: Dict[str, List[str]], 
-            ground_truth: Dict[str, Set[str]], 
-            k: int = 10) -> float:
-    """Computes F1-score@k (harmonic mean of precision and recall)."""
-    precision = precision_at_k(recommendations, ground_truth, k)
-    recall = recall_at_k(recommendations, ground_truth, k)
+            ground_truth: Union[Dict[str, Set[str]], Dict[str, Dict[str, float]]], 
+            k: int = 10,
+            relevance_threshold: float = 0) -> float:
+    """
+    Computes F1-score@k (harmonic mean of precision and recall).
     
-    if precision + recall == 0:
-        return 0.0
-    return 2 * (precision * recall) / (precision + recall)
+    More robust implementation that computes F1 per-user then averages,
+    rather than computing F1 from averaged precision/recall.
+    """
+    f1_scores = []
+    
+    for uid, recs in recommendations.items():
+        uid_str = str(uid)
+        
+        if uid_str not in ground_truth or not ground_truth[uid_str]:
+            continue
+        
+        top_k = [str(item) for item in recs[:k]]
+        
+        # Handle both formats
+        if isinstance(ground_truth[uid_str], dict):
+            relevant = {str(item) for item, rating in ground_truth[uid_str].items() 
+                       if rating > relevance_threshold}
+        else:
+            relevant = {str(item) for item in ground_truth[uid_str]}
+        
+        if len(relevant) == 0 or len(top_k) == 0:
+            continue
+        
+        hits = len(set(top_k) & relevant)
+        precision = hits / len(top_k)
+        recall = hits / len(relevant)
+        
+        if precision + recall > 0:
+            f1 = 2 * (precision * recall) / (precision + recall)
+            f1_scores.append(f1)
+    
+    return np.mean(f1_scores) if f1_scores else 0.0
 
 
 def map_at_k(recommendations: Dict[str, List[str]], 
-             ground_truth: Dict[str, Set[str]], 
-             k: int = 10) -> float:
-    """Computes Mean Average Precision@k."""
+             ground_truth: Union[Dict[str, Set[str]], Dict[str, Dict[str, float]]], 
+             k: int = 10,
+             relevance_threshold: float = 0) -> float:
+    """
+    Computes Mean Average Precision@k.
+    
+    Formula (as implemented in pyreclab):
+    AP@k = (1/tp) * sum(P@i) for all relevant items found in top-k
+    where tp = number of relevant items found (true positives)
+    
+    Args:
+        recommendations: {user_id: [item_id, ...]}
+        ground_truth: {user_id: set(item_id)} or {user_id: {item_id: rating}}
+        k: Number of top recommendations to consider
+        relevance_threshold: Minimum rating to consider item relevant (for graded format)
+    """
     ap_scores = []
     
     for uid, recs in recommendations.items():
-        if uid not in ground_truth or not ground_truth[uid]:
+        uid_str = str(uid)
+        
+        if uid_str not in ground_truth or not ground_truth[uid_str]:
             continue
         
-        relevant = ground_truth[uid]
-        top_k = recs[:k]
+        # Handle both formats
+        if isinstance(ground_truth[uid_str], dict):
+            relevant = {str(item) for item, rating in ground_truth[uid_str].items() 
+                       if rating > relevance_threshold}
+        else:
+            relevant = {str(item) for item in ground_truth[uid_str]}
         
-        hits = 0
+        if len(relevant) == 0:
+            continue
+        
+        top_k = [str(item) for item in recs[:k]]
+        
+        tp = 0  # True positives (hits)
         sum_precisions = 0.0
         
+        # Iterate through recommendations
         for i, item_id in enumerate(top_k):
             if item_id in relevant:
-                hits += 1
-                sum_precisions += hits / (i + 1)
+                tp += 1
+                # Precision at position i+1
+                sum_precisions += tp / (i + 1)
         
-        num_relevant = min(k, len(relevant))
-        ap = sum_precisions / num_relevant if num_relevant > 0 else 0.0
-        ap_scores.append(ap)
+        # Divide by number of relevant items FOUND (tp), not total relevant
+        avg_precision = sum_precisions / tp if tp > 0 else 0.0
+        ap_scores.append(avg_precision)
     
     return np.mean(ap_scores) if ap_scores else 0.0
 
-
 def ndcg_at_k(recommendations: Dict[str, List[str]], 
-              ground_truth: Dict[str, Set[str]], 
-              k: int = 10) -> float:
-    """Computes Normalized Discounted Cumulative Gain@k."""
+              ground_truth: Union[Dict[str, Set[str]], Dict[str, Dict[str, float]]], 
+              k: int = 10,
+              relevance_threshold: float = 0) -> float:
+    """
+    Computes Normalized Discounted Cumulative Gain@k.
     
-    def dcg(relevances):
-        """Calculate DCG for a list of binary relevances."""
-        relevances = np.asarray(relevances)
-        if relevances.size:
-            return np.sum(relevances / np.log2(np.arange(2, relevances.size + 2)))
-        return 0.0
+    Implementation matches pyreclab's NDCG calculation:
+    - DCG: sum of (1 / log2(i+1)) for each relevant item at position i
+    - IDCG: sum of (1 / log2(i+1)) for positions 1 to min(k, |relevant|)
     
+    Args:
+        recommendations: {user_id: [item_id, ...]}
+        ground_truth: {user_id: set(item_id)} or {user_id: {item_id: rating}}
+        k: Number of top recommendations to consider
+        relevance_threshold: Minimum rating to consider item relevant (for graded format)
+    """
     ndcg_scores = []
     
     for uid, recs in recommendations.items():
-        if uid not in ground_truth or not ground_truth[uid]:
+        uid_str = str(uid)
+        
+        if uid_str not in ground_truth or not ground_truth[uid_str]:
             continue
         
-        relevant = ground_truth[uid]
-        top_k = recs[:k]
+        # Handle both formats
+        if isinstance(ground_truth[uid_str], dict):
+            relevant = {str(item) for item, rating in ground_truth[uid_str].items() 
+                       if rating > relevance_threshold}
+        else:
+            relevant = {str(item) for item in ground_truth[uid_str]}
         
-        # Binary relevance: 1 if relevant, 0 otherwise
-        relevances = [1 if item in relevant else 0 for item in top_k]
-        ideal_relevances = sorted(relevances, reverse=True)
+        if len(relevant) == 0:
+            continue
         
-        dcg_score = dcg(relevances)
-        idcg_score = dcg(ideal_relevances)
+        top_k = [str(item) for item in recs[:k]]
         
-        if idcg_score > 0:
-            ndcg_scores.append(dcg_score / idcg_score)
+        dcg = 0.0
+        idcg = 0.0
+        
+        # Compute DCG and IDCG
+        for i, item_id in enumerate(top_k):
+            position = i + 1  # 1-indexed position
+            log2_i_plus_1 = np.log2(position + 1)
+            
+            # DCG: add discount for relevant items found
+            if item_id in relevant:
+                dcg += 1.0 / log2_i_plus_1
+            
+            # IDCG: add discount for positions up to min(k, |relevant|)
+            if position <= len(relevant):
+                idcg += 1.0 / log2_i_plus_1
+        
+        # Normalize DCG by IDCG
+        if idcg > 0:
+            ndcg_scores.append(dcg / idcg)
     
     return np.mean(ndcg_scores) if ndcg_scores else 0.0
 
 
 def mrr_at_k(recommendations: Dict[str, List[str]], 
-             ground_truth: Dict[str, Set[str]], 
-             k: int = 10) -> float:
+             ground_truth: Union[Dict[str, Set[str]], Dict[str, Dict[str, float]]], 
+             k: int = 10,
+             relevance_threshold: float = 0) -> float:
     """
     Computes Mean Reciprocal Rank@k.
+    
     Returns the average of the reciprocal ranks of the first relevant item.
+    MRR is particularly useful for tasks where finding at least one relevant
+    item quickly is important (e.g., search, question answering).
+    
+    Args:
+        recommendations: {user_id: [item_id, ...]}
+        ground_truth: {user_id: set(item_id)} or {user_id: {item_id: rating}}
+        k: Number of top recommendations to consider
+        relevance_threshold: Minimum rating to consider item relevant (for graded format)
+    
+    Returns:
+        Mean reciprocal rank across all users
     """
     reciprocal_ranks = []
     
     for uid, recs in recommendations.items():
-        if uid not in ground_truth or not ground_truth[uid]:
+        uid_str = str(uid)
+        
+        if uid_str not in ground_truth or not ground_truth[uid_str]:
             continue
         
-        relevant = ground_truth[uid]
-        top_k = recs[:k]
+        # Handle both formats
+        if isinstance(ground_truth[uid_str], dict):
+            # Graded relevance: filter by threshold
+            relevant = {str(item) for item, rating in ground_truth[uid_str].items() 
+                       if rating > relevance_threshold}
+        else:
+            # Binary relevance: convert to strings
+            relevant = {str(item) for item in ground_truth[uid_str]}
         
+        if len(relevant) == 0:
+            continue
+        
+        top_k = [str(item) for item in recs[:k]]
+        
+        # Find the first relevant item
         for i, item in enumerate(top_k):
             if item in relevant:
                 reciprocal_ranks.append(1.0 / (i + 1))
                 break
         else:
+            # No relevant item found in top-k
             reciprocal_ranks.append(0.0)
     
     return np.mean(reciprocal_ranks) if reciprocal_ranks else 0.0
@@ -352,7 +503,7 @@ def mood_alignment(
         # Perfil histórico del usuario
         user_profile = user_mood_profiles[user_id]
 
-        # 1. Crear el perfil de mood para la lista de recomendaciones
+        # Crear el perfil de mood para la lista de recomendaciones
         rec_moods_list = [mood for item_id in rec_items for mood in movie_mood_map.get(str(item_id), set())]
         
         if not rec_moods_list:
@@ -361,10 +512,10 @@ def mood_alignment(
         rec_mood_counts = Counter(rec_moods_list)
         total_rec_moods = sum(rec_mood_counts.values())
         
-        # 2. Normalizar para crear el vector de perfil de la recomendación
+        # Normalizar para crear el vector de perfil de la recomendación
         rec_profile = {mood: count / total_rec_moods for mood, count in rec_mood_counts.items()}
         
-        # 3. Calcular la similitud de coseno y guardarla
+        # Calcular la similitud de coseno y guardarla
         similarity = calculate_cosine_similarity(user_profile, rec_profile)
         alignment_scores.append(similarity)
 
