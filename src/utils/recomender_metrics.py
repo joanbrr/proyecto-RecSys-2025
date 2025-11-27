@@ -568,9 +568,6 @@ def evaluate_recommendations(
         if item_popularity is not None:
             results['novelty'][k] = novelty_at_k(recs, item_popularity, k)
         
-        if item_features is not None:
-            results['intra_list_similarity'][k] = intra_list_similarity(recs, item_features, k)
-        
         if all_items is not None:
             results['catalog_coverage'][k] = catalog_coverage(recs, all_items, k)
     
